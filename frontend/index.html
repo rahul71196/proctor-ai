@@ -164,6 +164,37 @@
               Test Camera
             </button>
           </div>
+
+          <!-- Environment Pre-Check -->
+          <div class="glass-card env-check-card" style="grid-column: 1 / -1">
+            <div class="card-header">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 12 15 16 10"/></svg>
+              <h2>Environment Pre-Check</h2>
+            </div>
+            <div class="env-checks" id="env-checks">
+              <div class="env-item" id="env-lighting">
+                <div class="env-icon">☀️</div>
+                <div class="env-info"><div class="env-name">Lighting</div><div class="env-status">Not checked</div></div>
+                <div class="env-badge">—</div>
+              </div>
+              <div class="env-item" id="env-face">
+                <div class="env-icon">👤</div>
+                <div class="env-info"><div class="env-name">Face Detection</div><div class="env-status">Not checked</div></div>
+                <div class="env-badge">—</div>
+              </div>
+              <div class="env-item" id="env-audio">
+                <div class="env-icon">🎤</div>
+                <div class="env-info"><div class="env-name">Audio Level</div><div class="env-status">Not checked</div></div>
+                <div class="env-badge">—</div>
+              </div>
+              <div class="env-item" id="env-connection">
+                <div class="env-icon">🌐</div>
+                <div class="env-info"><div class="env-name">API Connection</div><div class="env-status">Not checked</div></div>
+                <div class="env-badge">—</div>
+              </div>
+            </div>
+            <button class="btn-secondary" id="btn-env-check">Run Environment Check</button>
+          </div>
         </div>
       </section>
 
@@ -271,6 +302,38 @@
             </div>
           </div>
 
+          <!-- Mid Row: Interview Question + Trust Chart -->
+          <div class="monitor-mid-row">
+            <!-- Interview Question Panel -->
+            <div class="glass-card question-card">
+              <div class="card-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <h2>Interview Question</h2>
+                <span class="question-progress" id="question-progress">0/0</span>
+              </div>
+              <div class="question-body">
+                <div class="question-category" id="question-category">—</div>
+                <p class="question-text" id="question-text">Click "Start Monitoring" to begin the interview</p>
+                <div class="question-timer-bar">
+                  <div class="question-timer-fill" id="question-timer-fill"></div>
+                </div>
+                <div class="question-actions">
+                  <button class="btn-secondary btn-sm" id="btn-next-question" disabled>Next Question →</button>
+                </div>
+              </div>
+            </div>
+            <!-- Trust Score Chart -->
+            <div class="glass-card chart-card">
+              <div class="card-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                <h2>Trust Score History</h2>
+              </div>
+              <div class="chart-container">
+                <canvas id="trust-chart-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+
           <!-- Bottom Row -->
           <div class="monitor-bottom-row">
             <div class="glass-card timeline-card">
@@ -366,6 +429,18 @@
             </div>
             <div class="report-timeline-visual" id="report-timeline-visual">
               <p class="timeline-empty-text">Timeline will be generated after a session</p>
+            </div>
+          </div>
+
+          <!-- Session History -->
+          <div class="glass-card history-card">
+            <div class="card-header">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <h2>Past Sessions</h2>
+              <button class="btn-sm btn-ghost" id="btn-clear-history">Clear All</button>
+            </div>
+            <div class="history-list" id="history-list">
+              <p class="history-empty">No past sessions</p>
             </div>
           </div>
 

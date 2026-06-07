@@ -5,6 +5,9 @@
 
 import { ProctorEngine } from './proctor-engine.js';
 import { VIOLATION_TYPES } from './detection-types.js';
+import { InterviewManager } from './interview-questions.js';
+import { TrustChart } from './trust-chart.js';
+import { SessionHistory } from './session-history.js';
 
 // ── Arc Geometry ──────────────────────────────────────────────
 const GAUGE_ARC_LENGTH = 251.33; // Circumference of the semicircular arc
@@ -25,6 +28,9 @@ const state = {
   currentView: 'setup',
   trustScore: 100,
   frameCount: 0,
+  interviewManager: null,
+  trustChart: null,
+  questionTimerInterval: null,
 };
 
 // ── DOM References ───────────────────────────────────────────
@@ -90,6 +96,27 @@ function cacheElements() {
     monitor: $('#view-monitor'),
     report: $('#view-report'),
   };
+
+  // Environment check
+  els.btnEnvCheck = $('#btn-env-check');
+  els.envLighting = $('#env-lighting');
+  els.envFace = $('#env-face');
+  els.envAudio = $('#env-audio');
+  els.envConnection = $('#env-connection');
+
+  // Interview questions
+  els.questionProgress = $('#question-progress');
+  els.questionCategory = $('#question-category');
+  els.questionText = $('#question-text');
+  els.questionTimerFill = $('#question-timer-fill');
+  els.btnNextQuestion = $('#btn-next-question');
+
+  // Trust chart
+  els.trustChartCanvas = $('#trust-chart-canvas');
+
+  // Session history
+  els.historyList = $('#history-list');
+  els.btnClearHistory = $('#btn-clear-history');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -101,6 +128,16 @@ function init() {
   restoreState();
   bindEvents();
   addLogEntry('ProctorAI initialized — ready for configuration', 'info');
+
+  // Initialize trust chart
+  if (els.trustChartCanvas) {
+    try {
+      state.trustChart = new TrustChart(els.trustChartCanvas);
+    } catch (e) { console.warn('TrustChart not available:', e); }
+  }
+
+  // Load session history
+  renderSessionHistory();
 }
 
 function restoreState() {
@@ -170,6 +207,19 @@ function bindEvents() {
 
   // Tab visibility detection
   document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  // Environment check
+  if (els.btnEnvCheck) els.btnEnvCheck.addEventListener('click', runEnvironmentCheck);
+
+  // Interview questions
+  if (els.btnNextQuestion) els.btnNextQuestion.addEventListener('click', handleNextQuestion);
+
+  // Session history
+  if (els.btnClearHistory) els.btnClearHistory.addEventListener('click', () => {
+    SessionHistory.clearAll();
+    renderSessionHistory();
+    showToast('Session history cleared', 'info');
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -326,6 +376,31 @@ async function startMonitoring() {
     addLogEntry(`Monitoring started for ${state.candidateName}`, 'success');
     showToast('Monitoring session started', 'success');
     updateStatusPill('Monitoring', 'active');
+
+    // Initialize interview questions
+    try {
+      state.interviewManager = new InterviewManager({
+        apiKey: state.apiKey,
+        model: state.model,
+        position: state.interviewPosition || 'Software Engineer',
+        candidateName: state.candidateName,
+        onQuestionReady: displayQuestion,
+        onInterviewComplete: () => {
+          addLogEntry('All interview questions completed', 'success');
+          showToast('Interview questions completed!', 'success');
+        },
+      });
+      state.interviewManager.generateQuestions();
+      addLogEntry('Generating interview questions...', 'info');
+    } catch (e) {
+      console.warn('InterviewManager not available:', e);
+    }
+
+    // Start trust chart updates
+    if (state.trustChart) {
+      state.trustChart.clear();
+      state.trustChart.addDataPoint(100, 0);
+    }
   } catch (err) {
     hideLoading();
     console.error('Start monitoring error:', err);
@@ -361,6 +436,18 @@ function stopMonitoring() {
 
   addLogEntry('Monitoring session ended', 'info');
   showToast('Monitoring stopped — generating report', 'info');
+
+  // Clear question timer
+  if (state.questionTimerInterval) {
+    clearInterval(state.questionTimerInterval);
+    state.questionTimerInterval = null;
+  }
+
+  // Save session to history
+  try {
+    const reportData = buildReportData();
+    SessionHistory.saveSession(reportData);
+  } catch(e) { console.warn('Failed to save session:', e); }
 
   // Generate report and switch
   renderReport();
@@ -426,6 +513,12 @@ function handleTrustScoreUpdate(score) {
   if (!state.isMonitoring) return;
   state.trustScore = score;
   updateTrustGauge(score);
+
+  // Update trust chart
+  if (state.trustChart) {
+    state.trustChart.addDataPoint(score, getSessionElapsed());
+    state.trustChart.render();
+  }
 }
 
 function handleStatusChange(status) {
@@ -907,6 +1000,197 @@ function escapeHTML(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ENVIRONMENT CHECK
+// ══════════════════════════════════════════════════════════════
+
+async function runEnvironmentCheck() {
+  const btn = els.btnEnvCheck;
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+
+  // 1. Check API connection
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${state.apiKey}`
+    );
+    if (resp.ok) {
+      updateEnvItem(els.envConnection, 'pass', 'Connected', 'PASS');
+    } else {
+      updateEnvItem(els.envConnection, 'fail', `Error ${resp.status}`, 'FAIL');
+    }
+  } catch (e) {
+    updateEnvItem(els.envConnection, 'fail', 'Network error', 'FAIL');
+  }
+
+  // 2. Check camera and face
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    state.cameraStream = stream;
+    els.cameraPreview.srcObject = stream;
+    els.cameraPreview.classList.add('active');
+    updatePermission(els.permCamera, 'granted', 'Granted');
+    updatePermission(els.permMic, 'granted', 'Granted');
+
+    // Analyze a frame for face detection + lighting
+    await new Promise(r => setTimeout(r, 1500)); // Wait for camera to warm up
+    const canvas = document.createElement('canvas');
+    const video = els.cameraPreview;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const frameData = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+    if (state.apiKey) {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${state.model}:generateContent?key=${state.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: 'image/jpeg', data: frameData } },
+                { text: 'Analyze this webcam image for interview readiness. JSON response: { "face_detected": bool, "face_centered": bool, "lighting_quality": "good"|"dim"|"bright"|"backlit", "background_clean": bool, "notes": string }' }
+              ]
+            }],
+            generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+          })
+        }
+      );
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        const analysis = JSON.parse(text);
+
+        if (analysis.face_detected) {
+          updateEnvItem(els.envFace, 'pass', analysis.face_centered ? 'Centered' : 'Detected but not centered', analysis.face_centered ? 'PASS' : 'WARN');
+        } else {
+          updateEnvItem(els.envFace, 'fail', 'No face detected', 'FAIL');
+        }
+
+        const lightMap = { good: 'pass', dim: 'warn', bright: 'warn', backlit: 'fail' };
+        updateEnvItem(els.envLighting, lightMap[analysis.lighting_quality] || 'warn',
+          analysis.lighting_quality ? analysis.lighting_quality.charAt(0).toUpperCase() + analysis.lighting_quality.slice(1) : 'Unknown',
+          (lightMap[analysis.lighting_quality] || 'warn').toUpperCase());
+      }
+    } else {
+      updateEnvItem(els.envFace, 'warn', 'Need API key', 'SKIP');
+      updateEnvItem(els.envLighting, 'warn', 'Need API key', 'SKIP');
+    }
+
+    // Audio level check
+    const audioCtx = new AudioContext();
+    const analyser = audioCtx.createAnalyser();
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    await new Promise(r => setTimeout(r, 500));
+    analyser.getByteFrequencyData(dataArray);
+    const avgLevel = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+    audioCtx.close();
+
+    if (avgLevel < 5) {
+      updateEnvItem(els.envAudio, 'pass', 'Quiet environment', 'PASS');
+    } else if (avgLevel < 20) {
+      updateEnvItem(els.envAudio, 'warn', 'Some background noise', 'WARN');
+    } else {
+      updateEnvItem(els.envAudio, 'fail', 'Noisy environment', 'FAIL');
+    }
+  } catch (e) {
+    updateEnvItem(els.envFace, 'fail', e.message, 'FAIL');
+    updateEnvItem(els.envLighting, 'fail', 'Camera required', 'FAIL');
+    updateEnvItem(els.envAudio, 'fail', 'Microphone required', 'FAIL');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Run Environment Check';
+  addLogEntry('Environment check completed', 'info');
+}
+
+function updateEnvItem(el, status, statusText, badgeText) {
+  if (!el) return;
+  el.classList.remove('pass', 'fail', 'warn');
+  el.classList.add(status);
+  const statusEl = el.querySelector('.env-status');
+  const badgeEl = el.querySelector('.env-badge');
+  if (statusEl) statusEl.textContent = statusText;
+  if (badgeEl) badgeEl.textContent = badgeText;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  INTERVIEW QUESTIONS
+// ══════════════════════════════════════════════════════════════
+
+function displayQuestion(question) {
+  if (!els.questionText) return;
+  els.questionText.textContent = question.text;
+  els.questionCategory.textContent = question.category || 'General';
+  els.questionProgress.textContent = `${question.index + 1}/${question.total}`;
+  els.btnNextQuestion.disabled = false;
+
+  // Start question timer
+  if (state.questionTimerInterval) clearInterval(state.questionTimerInterval);
+  const timeLimit = question.timeLimit || 120;
+  let elapsed = 0;
+  els.questionTimerFill.style.width = '100%';
+
+  state.questionTimerInterval = setInterval(() => {
+    elapsed++;
+    const pct = Math.max(0, ((timeLimit - elapsed) / timeLimit) * 100);
+    els.questionTimerFill.style.width = `${pct}%`;
+    if (elapsed >= timeLimit) {
+      clearInterval(state.questionTimerInterval);
+      addLogEntry(`Question ${question.index + 1} time expired`, 'warning');
+    }
+  }, 1000);
+
+  addLogEntry(`Question ${question.index + 1} displayed: ${question.category}`, 'info');
+}
+
+function handleNextQuestion() {
+  if (!state.interviewManager) return;
+  if (state.interviewManager.isComplete()) {
+    showToast('All questions completed', 'success');
+    return;
+  }
+  state.interviewManager.nextQuestion();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SESSION HISTORY
+// ══════════════════════════════════════════════════════════════
+
+function renderSessionHistory() {
+  if (!els.historyList) return;
+  try {
+    const sessions = SessionHistory.getSessions();
+    if (!sessions || sessions.length === 0) {
+      els.historyList.innerHTML = '<p class="history-empty">No past sessions</p>';
+      return;
+    }
+    els.historyList.innerHTML = sessions.map(s => {
+      const scoreClass = s.trustScore >= 80 ? 'good' : s.trustScore >= 50 ? 'moderate' : 'bad';
+      const verdictClass = s.trustScore >= 80 ? 'pass' : s.trustScore >= 50 ? 'review' : 'fail';
+      const date = new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      return `
+        <div class="history-item">
+          <div class="history-score ${scoreClass}">${s.trustScore}</div>
+          <div class="history-info">
+            <div class="history-name">${escapeHTML(s.candidate)}</div>
+            <div class="history-meta">${escapeHTML(s.position || '')} · ${date} · ${s.totalViolations} violations</div>
+          </div>
+          <span class="history-verdict ${verdictClass}">${s.trustScore >= 80 ? 'Passed' : s.trustScore >= 50 ? 'Review' : 'Failed'}</span>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    console.warn('Failed to render history:', e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
