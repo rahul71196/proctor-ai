@@ -45,8 +45,7 @@ function cacheElements() {
   els.modelSelector = $('#model-selector');
 
   // Setup
-  els.apiKeyInput = $('#api-key-input');
-  els.btnToggleKey = $('#btn-toggle-key');
+
   els.frameInterval = $('#frame-interval');
   els.frameIntervalValue = $('#frame-interval-value');
   els.candidateName = $('#candidate-name');
@@ -141,9 +140,7 @@ function init() {
 }
 
 function restoreState() {
-  if (state.apiKey) {
-    els.apiKeyInput.value = state.apiKey;
-  }
+  // API key loaded from localStorage in state init
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -165,18 +162,7 @@ function bindEvents() {
     showToast(`Model switched to ${state.model}`, 'info');
   });
 
-  // API Key
-  els.apiKeyInput.addEventListener('input', (e) => {
-    state.apiKey = e.target.value.trim();
-    localStorage.setItem('proctor_api_key', state.apiKey);
-  });
 
-  els.btnToggleKey.addEventListener('click', () => {
-    const input = els.apiKeyInput;
-    const isPassword = input.type === 'password';
-    input.type = isPassword ? 'text' : 'password';
-    els.btnToggleKey.title = isPassword ? 'Hide key' : 'Show key';
-  });
 
   // Frame Interval
   els.frameInterval.addEventListener('input', (e) => {
@@ -302,11 +288,6 @@ function updatePermission(el, status, label) {
 
 async function startMonitoring() {
   // Validation
-  if (!state.apiKey) {
-    showToast('Please enter your Gemini API key', 'error');
-    els.apiKeyInput.focus();
-    return;
-  }
 
   if (!state.candidateName) {
     showToast('Please enter the candidate name', 'warning');
